@@ -13,8 +13,18 @@ Complete REST API reference for the SPTMS Transportation Management System.
   - [Customer Locations](#customer-locations-api)
   - [Carriers](#carriers-api)
   - [Loads](#loads-api)
+  - [Invoices](#invoices-api)
+  - [Carrier Payments](#carrier-payments-api)
+  - [Tracking Events](#tracking-events-api)
   - [Media](#media-api)
   - [Users](#users-api)
+- [Custom Endpoints](#custom-endpoints)
+  - [Load Operations](#load-operations)
+  - [MacroPoint Tracking](#macropoint-tracking)
+  - [Invoice Generation](#invoice-generation)
+  - [Carrier Payment Generation](#carrier-payment-generation)
+  - [Profitability Reports](#profitability-reports)
+  - [DAT Load Board](#dat-load-board)
 - [GraphQL API](#graphql-api)
 - [Error Handling](#error-handling)
 
@@ -519,6 +529,102 @@ Returns the file for download.
 
 ---
 
+### Invoices API
+
+#### List Invoices
+
+```bash
+GET /api/invoices?where[status][equals]=draft
+```
+
+#### Get Invoice by Number
+
+```bash
+GET /api/invoices?where[invoiceNumber][equals]=INV-202411-0001
+```
+
+#### Create Invoice
+
+```bash
+POST /api/invoices
+```
+
+**Request Body**:
+```json
+{
+  "customer": "customer-id",
+  "invoiceDate": "2024-11-27",
+  "paymentTerms": "net-30",
+  "lineItems": [
+    {
+      "description": "Freight: Dallas, TX to Houston, TX",
+      "quantity": 1,
+      "rate": 2500
+    }
+  ]
+}
+```
+
+**Note**: Invoice number is auto-generated (format: `INV-YYYYMM-XXXX`).
+
+---
+
+### Carrier Payments API
+
+#### List Carrier Pay Sheets
+
+```bash
+GET /api/carrier-payments?where[status][equals]=pending
+```
+
+#### Get Pay Sheet by Number
+
+```bash
+GET /api/carrier-payments?where[paySheetNumber][equals]=PAY-202411-0001
+```
+
+#### Create Carrier Pay Sheet
+
+```bash
+POST /api/carrier-payments
+```
+
+**Request Body**:
+```json
+{
+  "carrier": "carrier-id",
+  "loads": ["load-id-1"],
+  "paymentType": "standard",
+  "lineItems": [
+    {
+      "description": "Line Haul: Dallas to Houston",
+      "amount": 2000,
+      "type": "linehaul"
+    }
+  ]
+}
+```
+
+**Note**: Pay sheet number is auto-generated (format: `PAY-YYYYMM-XXXX`).
+
+---
+
+### Tracking Events API
+
+#### List Tracking Events for a Load
+
+```bash
+GET /api/tracking-events?where[load][equals]=LOAD_ID&sort=-timestamp
+```
+
+#### Get Latest Location
+
+```bash
+GET /api/tracking-events?where[load][equals]=LOAD_ID&sort=-timestamp&limit=1
+```
+
+---
+
 ### Users API
 
 #### List Users
@@ -541,6 +647,572 @@ POST /api/users
   "email": "newuser@example.com",
   "password": "SecurePassword123!",
   "name": "New User"
+}
+```
+
+---
+
+## Custom Endpoints
+
+These endpoints provide specialized functionality beyond standard CRUD operations.
+
+### Load Operations
+
+#### Download Rate Confirmation PDF
+
+```bash
+GET /api/loads/:id/rate-confirmation
+```
+
+Downloads the rate confirmation as a PDF file.
+
+#### Email Rate Confirmation
+
+```bash
+POST /api/loads/:id/rate-confirmation/send
+```
+
+**Request Body**:
+```json
+{
+  "email": "carrier@example.com"
+}
+```
+
+Sends rate confirmation email to carrier with PDF attachment.
+
+#### Duplicate Load
+
+```bash
+POST /api/loads/:id/duplicate
+```
+
+Creates a copy of the load with status reset to "booked" and new load number.
+
+**Response**:
+```json
+{
+  "success": true,
+  "newLoad": {
+    "id": "new-load-id",
+    "loadNumber": "SPTMS-202411-0005"
+  }
+}
+```
+
+---
+
+### MacroPoint Tracking
+
+#### Initiate Tracking
+
+```bash
+POST /api/loads/:id/tracking
+```
+
+**Request Body** (optional):
+```json
+{
+  "driverPhone": "555-123-4567",
+  "driverName": "John Driver"
+}
+```
+
+Initiates MacroPoint tracking for the load. Uses driver info from load if not provided.
+
+**Response**:
+```json
+{
+  "success": true,
+  "trackingId": "MP-123456"
+}
+```
+
+#### Get Tracking Status
+
+```bash
+GET /api/loads/:id/tracking
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "tracking": {
+    "trackingId": "MP-123456",
+    "trackingActive": true,
+    "lastLocation": "Dallas, TX",
+    "lastUpdate": "2024-11-27T10:30:00Z"
+  }
+}
+```
+
+#### Cancel Tracking
+
+```bash
+DELETE /api/loads/:id/tracking
+```
+
+Cancels active MacroPoint tracking for the load.
+
+#### MacroPoint Webhook
+
+```bash
+POST /api/webhooks/macropoint
+```
+
+Receives location updates from MacroPoint. Auto-updates load status based on geofence events:
+- Arrived at pickup → Status: `in-transit`
+- Arrived at delivery → Status: `delivered`
+
+---
+
+### Invoice Generation
+
+#### Generate Invoice from Loads
+
+```bash
+POST /api/invoices/generate
+```
+
+**Request Body**:
+```json
+{
+  "loadIds": ["load-id-1", "load-id-2"],
+  "combineLoads": true
+}
+```
+
+Creates invoice(s) from delivered loads. Updates load status to "invoiced".
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Created 1 invoice(s)",
+  "invoices": [
+    {
+      "id": "invoice-id",
+      "invoiceNumber": "INV-202411-0001",
+      "total": 5000,
+      "customer": "Acme Corp"
+    }
+  ]
+}
+```
+
+#### Download Invoice PDF
+
+```bash
+GET /api/invoices/:id/pdf
+```
+
+Downloads the invoice as a PDF file.
+
+---
+
+### Carrier Payment Generation
+
+#### Generate Pay Sheet from Loads
+
+```bash
+POST /api/carrier-payments/generate
+```
+
+**Request Body**:
+```json
+{
+  "loadIds": ["load-id-1", "load-id-2"],
+  "combineLoads": true,
+  "paymentType": "standard"
+}
+```
+
+Creates carrier pay sheet(s) from delivered loads.
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Created 1 pay sheet(s)",
+  "paySheets": [
+    {
+      "id": "paysheet-id",
+      "paySheetNumber": "PAY-202411-0001",
+      "total": 4000,
+      "carrier": "Fast Freight LLC",
+      "paymentType": "standard"
+    }
+  ]
+}
+```
+
+---
+
+### Profitability Reports
+
+#### Get Profitability Summary
+
+```bash
+GET /api/reports/profitability?type=summary&startDate=2024-11-01&endDate=2024-11-30
+```
+
+**Query Parameters**:
+- `type`: `summary` | `loads` | `customers` | `carriers` | `lanes`
+- `startDate`: ISO date (default: 30 days ago)
+- `endDate`: ISO date (default: today)
+- `customerId`: Filter by customer (optional)
+- `carrierId`: Filter by carrier (optional)
+
+**Response (summary)**:
+```json
+{
+  "success": true,
+  "reportType": "summary",
+  "report": {
+    "period": {
+      "startDate": "2024-11-01",
+      "endDate": "2024-11-30"
+    },
+    "totalLoads": 45,
+    "totalRevenue": 112500,
+    "totalCost": 90000,
+    "grossProfit": 22500,
+    "averageMarginPercent": 20,
+    "topCustomers": [...],
+    "topLanes": [...],
+    "loadsByStatus": {
+      "booked": 5,
+      "dispatched": 3,
+      "in-transit": 2,
+      "delivered": 15,
+      "invoiced": 12,
+      "paid": 8
+    }
+  }
+}
+```
+
+#### Customer Profitability Report
+
+```bash
+GET /api/reports/profitability?type=customers
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "reportType": "customers",
+  "report": {
+    "customers": [
+      {
+        "customerId": "customer-id",
+        "customerName": "Acme Corp",
+        "totalLoads": 25,
+        "totalRevenue": 62500,
+        "totalCost": 50000,
+        "totalProfit": 12500,
+        "averageMarginPercent": 20,
+        "averageRevenuePerLoad": 2500,
+        "averageProfitPerLoad": 500
+      }
+    ],
+    "period": {...},
+    "totalLoads": 45
+  }
+}
+```
+
+#### Lane Profitability Report
+
+```bash
+GET /api/reports/profitability?type=lanes
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "reportType": "lanes",
+  "report": {
+    "lanes": [
+      {
+        "originCity": "Dallas",
+        "originState": "TX",
+        "destinationCity": "Houston",
+        "destinationState": "TX",
+        "totalLoads": 12,
+        "averageCustomerRate": 2500,
+        "averageCarrierRate": 2000,
+        "averageMargin": 500,
+        "averageMarginPercent": 20,
+        "averageMiles": 240
+      }
+    ],
+    "period": {...},
+    "totalLoads": 45
+  }
+}
+```
+
+---
+
+### DAT Load Board
+
+Integration with DAT for load posting, truck search, and market rates.
+
+#### Post Load to DAT
+
+```bash
+POST /api/dat/postings
+```
+
+**Request Body**:
+```json
+{
+  "loadId": "load-id",
+  "contactInfo": {
+    "name": "John Broker",
+    "phone": "555-123-4567",
+    "email": "john@broker.com"
+  }
+}
+```
+
+Posts the load to DAT load board. Updates the load record with `datPostingId`.
+
+**Response**:
+```json
+{
+  "success": true,
+  "postingId": "DAT-12345",
+  "matchingTrucks": 15,
+  "message": "Load SPTMS-202511-0001 posted to DAT successfully"
+}
+```
+
+#### Get My DAT Postings
+
+```bash
+GET /api/dat/postings
+```
+
+Returns all active load postings on DAT.
+
+**Response**:
+```json
+{
+  "success": true,
+  "postings": [
+    {
+      "postingId": "DAT-12345",
+      "referenceNumber": "SPTMS-202511-0001",
+      "origin": { "city": "Dallas", "state": "TX" },
+      "destination": { "city": "Houston", "state": "TX" },
+      "pickupDate": "2025-11-28",
+      "equipmentType": "dry-van",
+      "rate": 2500
+    }
+  ],
+  "count": 1
+}
+```
+
+#### Update DAT Posting
+
+```bash
+PUT /api/dat/postings/:postingId
+```
+
+**Request Body**:
+```json
+{
+  "rate": 2600,
+  "comments": "Updated rate"
+}
+```
+
+#### Remove DAT Posting
+
+```bash
+DELETE /api/dat/postings/:postingId?loadId=load-id
+```
+
+Removes the posting from DAT. If `loadId` is provided, clears `datPostingId` from the load.
+
+---
+
+#### Search Available Trucks
+
+```bash
+GET /api/dat/trucks?originCity=Dallas&originState=TX&destCity=Houston&destState=TX
+```
+
+**Query Parameters**:
+- `originCity` (required): Origin city
+- `originState` (required): Origin state code
+- `destCity`: Destination city
+- `destState`: Destination state code
+- `equipmentTypes`: Comma-separated equipment types (e.g., `dry-van,reefer`)
+- `availableDate`: Available date (YYYY-MM-DD)
+- `originRadius`: Max miles from origin (default: 100)
+- `destRadius`: Max miles from destination (default: 100)
+- `limit`: Max results (default: 50)
+
+**Response**:
+```json
+{
+  "success": true,
+  "trucks": [
+    {
+      "postingId": "TRK-67890",
+      "carrier": {
+        "name": "Fast Freight LLC",
+        "mcNumber": "MC123456",
+        "phone": "555-987-6543",
+        "rating": 4.5,
+        "authorityAge": 36
+      },
+      "equipment": {
+        "type": "V",
+        "length": 53
+      },
+      "location": {
+        "city": "Fort Worth",
+        "state": "TX"
+      },
+      "destination": {
+        "city": "Houston",
+        "state": "TX"
+      },
+      "availableDate": "2025-11-28"
+    }
+  ],
+  "totalCount": 15
+}
+```
+
+#### Advanced Truck Search (POST)
+
+```bash
+POST /api/dat/trucks
+```
+
+**Request Body**:
+```json
+{
+  "origin": { "city": "Dallas", "state": "TX", "radius": 100 },
+  "destination": { "city": "Houston", "state": "TX", "radius": 100 },
+  "equipmentTypes": ["dry-van", "reefer"],
+  "availableDate": "2025-11-28",
+  "deadheadOrigin": 150,
+  "deadheadDestination": 150,
+  "limit": 25
+}
+```
+
+---
+
+#### Get Market Rates
+
+```bash
+GET /api/dat/rates?originCity=Dallas&originState=TX&destCity=Houston&destState=TX&equipmentType=dry-van
+```
+
+**Query Parameters**:
+- `originCity` (required): Origin city
+- `originState` (required): Origin state code
+- `destCity` (required): Destination city
+- `destState` (required): Destination state code
+- `equipmentType` (required): Equipment type
+- `date`: Specific date for rates
+- `targetMargin`: Target margin as decimal (e.g., 0.15 for 15%) - calculates suggested rates
+
+**Response**:
+```json
+{
+  "success": true,
+  "rates": {
+    "spotRate": {
+      "low": 2100,
+      "average": 2400,
+      "high": 2800,
+      "perMile": 4.50,
+      "totalMiles": 533,
+      "sampleSize": 42
+    },
+    "contractRate": {
+      "low": 2000,
+      "average": 2300,
+      "high": 2600,
+      "perMile": 4.32
+    },
+    "fuelSurcharge": 0.45,
+    "trend": {
+      "direction": "up",
+      "percentChange": 5.2,
+      "period": "7d"
+    }
+  },
+  "suggestedRates": {
+    "suggestedCustomerRate": 2824,
+    "suggestedCarrierRate": 2400,
+    "marketRate": 2400,
+    "margin": 0.15,
+    "mileage": 533
+  }
+}
+```
+
+#### Get Rate History
+
+```bash
+GET /api/dat/rates/history?originCity=Dallas&originState=TX&destCity=Houston&destState=TX&equipmentType=dry-van&days=90
+```
+
+**Query Parameters**:
+- `originCity` (required): Origin city
+- `originState` (required): Origin state code
+- `destCity` (required): Destination city
+- `destState` (required): Destination state code
+- `equipmentType` (required): Equipment type
+- `days`: Number of days of history (default: 90)
+
+**Response**:
+```json
+{
+  "success": true,
+  "lane": {
+    "origin": { "city": "Dallas", "state": "TX" },
+    "destination": { "city": "Houston", "state": "TX" }
+  },
+  "equipmentType": "dry-van",
+  "history": [
+    {
+      "date": "2025-09-01",
+      "spotRate": 2200,
+      "contractRate": 2100,
+      "volume": 125,
+      "fuelPrice": 3.45
+    },
+    {
+      "date": "2025-10-01",
+      "spotRate": 2350,
+      "contractRate": 2200,
+      "volume": 142,
+      "fuelPrice": 3.52
+    }
+  ],
+  "analytics": {
+    "averageSpotRate": 2275,
+    "minSpotRate": 2200,
+    "maxSpotRate": 2350,
+    "totalVolume": 267,
+    "latestRate": 2350,
+    "oldestRate": 2200,
+    "percentChange": 6.8
+  }
 }
 ```
 

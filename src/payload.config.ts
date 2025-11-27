@@ -11,6 +11,9 @@ import { CustomerLocations } from './collections/CustomerLocations'
 import { Carriers } from './collections/Carriers'
 import { Loads } from './collections/Loads'
 import { Media } from './collections/Media'
+import { TrackingEvents } from './collections/TrackingEvents'
+import { Invoices } from './collections/Invoices'
+import { CarrierPayments } from './collections/CarrierPayments'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -29,6 +32,9 @@ export default buildConfig({
     CustomerLocations,
     Carriers,
     Media,
+    TrackingEvents,
+    Invoices,
+    CarrierPayments,
   ],
   plugins: [
     // Temporarily disabled - will re-enable after fixing version mismatch

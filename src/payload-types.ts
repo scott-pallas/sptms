@@ -73,6 +73,9 @@ export interface Config {
     'customer-locations': CustomerLocation;
     carriers: Carrier;
     media: Media;
+    'tracking-events': TrackingEvent;
+    invoices: Invoice;
+    'carrier-payments': CarrierPayment;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -86,6 +89,9 @@ export interface Config {
     'customer-locations': CustomerLocationsSelect<false> | CustomerLocationsSelect<true>;
     carriers: CarriersSelect<false> | CarriersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
+    'tracking-events': TrackingEventsSelect<false> | TrackingEventsSelect<true>;
+    invoices: InvoicesSelect<false> | InvoicesSelect<true>;
+    'carrier-payments': CarrierPaymentsSelect<false> | CarrierPaymentsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -155,9 +161,9 @@ export interface User {
 export interface Load {
   id: string;
   /**
-   * Auto-generated or manual
+   * Auto-generated if left blank (format: SPTMS-YYYYMM-XXXX)
    */
-  loadNumber: string;
+  loadNumber?: string | null;
   status: 'booked' | 'dispatched' | 'in-transit' | 'delivered' | 'invoiced' | 'paid' | 'cancelled' | 'tonu';
   customer: string | Customer;
   customerRate: number;
@@ -195,6 +201,10 @@ export interface Load {
   deliveryDateEnd?: string | null;
   deliveryAppointment?: boolean | null;
   deliveryInstructions?: string | null;
+  /**
+   * Total miles for this load
+   */
+  miles?: number | null;
   equipmentType: 'dry-van' | 'reefer' | 'flatbed' | 'step-deck' | 'power-only' | 'hotshot' | 'box-truck';
   weight?: number | null;
   length?: number | null;
@@ -248,8 +258,17 @@ export interface Load {
         id?: string | null;
       }[]
     | null;
+  /**
+   * Special instructions for carrier (shown on rate confirmation)
+   */
+  specialInstructions?: string | null;
   internalNotes?: string | null;
   dispatchNotes?: string | null;
+  /**
+   * ID of the load posting on DAT load board
+   */
+  datPostingId?: string | null;
+  datPosted?: boolean | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -413,6 +432,196 @@ export interface Media {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tracking-events".
+ */
+export interface TrackingEvent {
+  id: string;
+  load: string | Load;
+  eventType:
+    | 'location'
+    | 'arrived-pickup'
+    | 'departed-pickup'
+    | 'arrived-delivery'
+    | 'departed-delivery'
+    | 'in-transit'
+    | 'delay'
+    | 'exception';
+  timestamp: string;
+  location?: {
+    latitude?: number | null;
+    longitude?: number | null;
+    city?: string | null;
+    state?: string | null;
+    address?: string | null;
+  };
+  source: 'macropoint' | 'manual' | 'eld' | 'gps' | 'mobile';
+  macropointData?: {
+    orderId?: string | null;
+    /**
+     * X1=pickup, X3=arrived pickup, X2=delivery, X4=arrived delivery
+     */
+    eventCode?: string | null;
+    rawPayload?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+  };
+  eta?: {
+    estimatedArrival?: string | null;
+    milesRemaining?: number | null;
+    minutesRemaining?: number | null;
+  };
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "invoices".
+ */
+export interface Invoice {
+  id: string;
+  /**
+   * Auto-generated if left blank (format: INV-YYYYMM-XXXX)
+   */
+  invoiceNumber?: string | null;
+  status: 'draft' | 'sent' | 'viewed' | 'partial' | 'paid' | 'overdue' | 'void';
+  customer: string | Customer;
+  loads?: (string | Load)[] | null;
+  invoiceDate: string;
+  /**
+   * Auto-calculated from payment terms
+   */
+  dueDate?: string | null;
+  paymentTerms?: ('due-on-receipt' | 'net-15' | 'net-30' | 'net-45' | 'net-60') | null;
+  lineItems?:
+    | {
+        description: string;
+        quantity?: number | null;
+        rate: number;
+        /**
+         * Auto-calculated
+         */
+        total?: number | null;
+        load?: (string | null) | Load;
+        id?: string | null;
+      }[]
+    | null;
+  subtotal?: number | null;
+  total?: number | null;
+  payments?:
+    | {
+        paymentDate: string;
+        amount: number;
+        method?: ('check' | 'ach' | 'wire' | 'credit-card' | 'other') | null;
+        referenceNumber?: string | null;
+        notes?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Auto-calculated from payments
+   */
+  amountPaid?: number | null;
+  /**
+   * Auto-calculated
+   */
+  balanceDue?: number | null;
+  billingAddress?: {
+    companyName?: string | null;
+    addressLine1?: string | null;
+    addressLine2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zipCode?: string | null;
+  };
+  /**
+   * QuickBooks sync information
+   */
+  quickbooks?: {
+    invoiceId?: string | null;
+    syncedAt?: string | null;
+    syncStatus?: ('not-synced' | 'synced' | 'error') | null;
+    syncError?: string | null;
+  };
+  notes?: string | null;
+  internalNotes?: string | null;
+  sentAt?: string | null;
+  sentTo?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "carrier-payments".
+ */
+export interface CarrierPayment {
+  id: string;
+  /**
+   * Auto-generated if left blank (format: PAY-YYYYMM-XXXX)
+   */
+  paySheetNumber?: string | null;
+  status: 'pending' | 'approved' | 'submitted' | 'processing' | 'paid' | 'rejected' | 'void';
+  carrier: string | Carrier;
+  loads?: (string | Load)[] | null;
+  paymentType: 'standard' | 'quick-pay' | 'factoring';
+  /**
+   * Percentage fee for quick pay
+   */
+  quickPayFee?: number | null;
+  dueDate?: string | null;
+  paidDate?: string | null;
+  lineItems?:
+    | {
+        description: string;
+        load?: (string | null) | Load;
+        amount: number;
+        type?: ('linehaul' | 'detention' | 'layover' | 'lumper' | 'fuel-advance' | 'other') | null;
+        id?: string | null;
+      }[]
+    | null;
+  deductions?:
+    | {
+        description: string;
+        amount: number;
+        type?: ('quick-pay-fee' | 'insurance' | 'cargo-claim' | 'chargeback' | 'other') | null;
+        id?: string | null;
+      }[]
+    | null;
+  subtotal?: number | null;
+  totalDeductions?: number | null;
+  total?: number | null;
+  paymentDetails?: {
+    paymentMethod?: ('ach' | 'check' | 'wire' | 'comchek' | 'efs') | null;
+    checkNumber?: string | null;
+    bankAccount?: string | null;
+  };
+  factoringCompany?: {
+    name?: string | null;
+    remitTo?: string | null;
+  };
+  /**
+   * ePay sync information
+   */
+  epay?: {
+    paymentId?: string | null;
+    submittedAt?: string | null;
+    syncStatus?: ('not-synced' | 'submitted' | 'processing' | 'completed' | 'error') | null;
+    syncError?: string | null;
+  };
+  notes?: string | null;
+  approvedBy?: (string | null) | User;
+  approvedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -458,6 +667,18 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'media';
         value: string | Media;
+      } | null)
+    | ({
+        relationTo: 'tracking-events';
+        value: string | TrackingEvent;
+      } | null)
+    | ({
+        relationTo: 'invoices';
+        value: string | Invoice;
+      } | null)
+    | ({
+        relationTo: 'carrier-payments';
+        value: string | CarrierPayment;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -573,6 +794,7 @@ export interface LoadsSelect<T extends boolean = true> {
   deliveryDateEnd?: T;
   deliveryAppointment?: T;
   deliveryInstructions?: T;
+  miles?: T;
   equipmentType?: T;
   weight?: T;
   length?: T;
@@ -626,8 +848,11 @@ export interface LoadsSelect<T extends boolean = true> {
         note?: T;
         id?: T;
       };
+  specialInstructions?: T;
   internalNotes?: T;
   dispatchNotes?: T;
+  datPostingId?: T;
+  datPosted?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -741,6 +966,163 @@ export interface MediaSelect<T extends boolean = true> {
   height?: T;
   focalX?: T;
   focalY?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tracking-events_select".
+ */
+export interface TrackingEventsSelect<T extends boolean = true> {
+  load?: T;
+  eventType?: T;
+  timestamp?: T;
+  location?:
+    | T
+    | {
+        latitude?: T;
+        longitude?: T;
+        city?: T;
+        state?: T;
+        address?: T;
+      };
+  source?: T;
+  macropointData?:
+    | T
+    | {
+        orderId?: T;
+        eventCode?: T;
+        rawPayload?: T;
+      };
+  eta?:
+    | T
+    | {
+        estimatedArrival?: T;
+        milesRemaining?: T;
+        minutesRemaining?: T;
+      };
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "invoices_select".
+ */
+export interface InvoicesSelect<T extends boolean = true> {
+  invoiceNumber?: T;
+  status?: T;
+  customer?: T;
+  loads?: T;
+  invoiceDate?: T;
+  dueDate?: T;
+  paymentTerms?: T;
+  lineItems?:
+    | T
+    | {
+        description?: T;
+        quantity?: T;
+        rate?: T;
+        total?: T;
+        load?: T;
+        id?: T;
+      };
+  subtotal?: T;
+  total?: T;
+  payments?:
+    | T
+    | {
+        paymentDate?: T;
+        amount?: T;
+        method?: T;
+        referenceNumber?: T;
+        notes?: T;
+        id?: T;
+      };
+  amountPaid?: T;
+  balanceDue?: T;
+  billingAddress?:
+    | T
+    | {
+        companyName?: T;
+        addressLine1?: T;
+        addressLine2?: T;
+        city?: T;
+        state?: T;
+        zipCode?: T;
+      };
+  quickbooks?:
+    | T
+    | {
+        invoiceId?: T;
+        syncedAt?: T;
+        syncStatus?: T;
+        syncError?: T;
+      };
+  notes?: T;
+  internalNotes?: T;
+  sentAt?: T;
+  sentTo?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "carrier-payments_select".
+ */
+export interface CarrierPaymentsSelect<T extends boolean = true> {
+  paySheetNumber?: T;
+  status?: T;
+  carrier?: T;
+  loads?: T;
+  paymentType?: T;
+  quickPayFee?: T;
+  dueDate?: T;
+  paidDate?: T;
+  lineItems?:
+    | T
+    | {
+        description?: T;
+        load?: T;
+        amount?: T;
+        type?: T;
+        id?: T;
+      };
+  deductions?:
+    | T
+    | {
+        description?: T;
+        amount?: T;
+        type?: T;
+        id?: T;
+      };
+  subtotal?: T;
+  totalDeductions?: T;
+  total?: T;
+  paymentDetails?:
+    | T
+    | {
+        paymentMethod?: T;
+        checkNumber?: T;
+        bankAccount?: T;
+      };
+  factoringCompany?:
+    | T
+    | {
+        name?: T;
+        remitTo?: T;
+      };
+  epay?:
+    | T
+    | {
+        paymentId?: T;
+        submittedAt?: T;
+        syncStatus?: T;
+        syncError?: T;
+      };
+  notes?: T;
+  approvedBy?: T;
+  approvedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

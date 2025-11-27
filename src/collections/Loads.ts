@@ -1,4 +1,67 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, CollectionBeforeChangeHook } from 'payload'
+
+// Generate next load number (format: SPTMS-YYYYMM-XXXX)
+const generateLoadNumber = async (payload: any): Promise<string> => {
+  const now = new Date()
+  const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
+  const prefix = `SPTMS-${yearMonth}-`
+
+  // Find the highest load number for this month
+  const existingLoads = await payload.find({
+    collection: 'loads',
+    where: {
+      loadNumber: {
+        like: prefix,
+      },
+    },
+    sort: '-loadNumber',
+    limit: 1,
+  })
+
+  let nextNumber = 1
+  if (existingLoads.docs.length > 0) {
+    const lastNumber = existingLoads.docs[0].loadNumber
+    const lastSequence = parseInt(lastNumber.split('-').pop() || '0', 10)
+    nextNumber = lastSequence + 1
+  }
+
+  return `${prefix}${String(nextNumber).padStart(4, '0')}`
+}
+
+// Calculate margin from customer rate and carrier rate
+const calculateMargin = (customerRate?: number, carrierRate?: number): number => {
+  if (!customerRate || !carrierRate) return 0
+  return customerRate - carrierRate
+}
+
+// Before change hook for load number, margin, and status history
+const beforeChangeHook: CollectionBeforeChangeHook = async ({ data, originalDoc, req, operation }) => {
+  const payload = req.payload
+
+  // Auto-generate load number on create if not provided
+  if (operation === 'create' && !data.loadNumber) {
+    data.loadNumber = await generateLoadNumber(payload)
+  }
+
+  // Calculate margin
+  data.margin = calculateMargin(data.customerRate, data.carrierRate)
+
+  // Track status changes
+  const currentStatus = data.status
+  const previousStatus = originalDoc?.status
+
+  if (operation === 'create' || (currentStatus && currentStatus !== previousStatus)) {
+    const statusHistory = data.statusHistory || originalDoc?.statusHistory || []
+    statusHistory.push({
+      status: currentStatus,
+      timestamp: new Date().toISOString(),
+      note: operation === 'create' ? 'Load created' : `Status changed from ${previousStatus} to ${currentStatus}`,
+    })
+    data.statusHistory = statusHistory
+  }
+
+  return data
+}
 
 export const Loads: CollectionConfig = {
   slug: 'loads',
@@ -8,16 +71,21 @@ export const Loads: CollectionConfig = {
   },
   access: {
     read: () => true,
+    create: () => true,
+    update: () => true,
+  },
+  hooks: {
+    beforeChange: [beforeChangeHook],
   },
   fields: [
     {
       name: 'loadNumber',
       type: 'text',
-      required: true,
       unique: true,
       label: 'Load Number',
       admin: {
-        description: 'Auto-generated or manual',
+        description: 'Auto-generated if left blank (format: SPTMS-YYYYMM-XXXX)',
+        placeholder: 'Leave blank to auto-generate',
       },
     },
     {
@@ -114,7 +182,7 @@ export const Loads: CollectionConfig = {
                     },
                   }
                 }
-                return {}
+                return true
               },
             },
             {
@@ -208,7 +276,7 @@ export const Loads: CollectionConfig = {
                     },
                   }
                 }
-                return {}
+                return true
               },
             },
             {
@@ -289,6 +357,14 @@ export const Loads: CollectionConfig = {
         {
           label: 'Freight Details',
           fields: [
+            {
+              name: 'miles',
+              type: 'number',
+              label: 'Miles',
+              admin: {
+                description: 'Total miles for this load',
+              },
+            },
             {
               name: 'equipmentType',
               type: 'select',
@@ -598,6 +674,14 @@ export const Loads: CollectionConfig = {
           label: 'Notes',
           fields: [
             {
+              name: 'specialInstructions',
+              type: 'textarea',
+              label: 'Special Instructions',
+              admin: {
+                description: 'Special instructions for carrier (shown on rate confirmation)',
+              },
+            },
+            {
               name: 'internalNotes',
               type: 'textarea',
               label: 'Internal Notes',
@@ -606,6 +690,29 @@ export const Loads: CollectionConfig = {
               name: 'dispatchNotes',
               type: 'textarea',
               label: 'Dispatch Notes',
+            },
+          ],
+        },
+        {
+          label: 'DAT',
+          fields: [
+            {
+              name: 'datPostingId',
+              type: 'text',
+              label: 'DAT Posting ID',
+              admin: {
+                readOnly: true,
+                description: 'ID of the load posting on DAT load board',
+              },
+            },
+            {
+              name: 'datPosted',
+              type: 'checkbox',
+              label: 'Posted to DAT',
+              defaultValue: false,
+              admin: {
+                readOnly: true,
+              },
             },
           ],
         },

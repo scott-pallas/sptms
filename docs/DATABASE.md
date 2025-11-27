@@ -11,6 +11,9 @@ Complete documentation of all Payload CMS collections and their relationships.
   - [Customer Locations](#customer-locations)
   - [Carriers](#carriers)
   - [Loads](#loads)
+  - [Tracking Events](#tracking-events)
+  - [Invoices](#invoices)
+  - [Carrier Payments](#carrier-payments)
   - [Media](#media)
 - [Relationships](#relationships)
 - [Indexes](#indexes)
@@ -28,6 +31,9 @@ sptms (database)
 ├── customer-locations       # Pickup/delivery addresses
 ├── carriers                 # Carrier companies
 ├── loads                    # Load records
+├── tracking-events          # MacroPoint location history
+├── invoices                 # Customer invoices
+├── carrier-payments         # Carrier pay sheets
 ├── media                    # Document storage
 ├── payload-preferences      # Payload admin preferences
 └── payload-migrations       # Schema version tracking
@@ -334,6 +340,172 @@ Auto-tracked array of status changes:
 
 ---
 
+### Tracking Events
+
+Location history from MacroPoint tracking.
+
+**Collection**: `tracking-events`
+**Slug**: `tracking-events`
+
+#### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `load` | relationship | Yes | Reference to loads collection |
+| `macropointOrderId` | text | No | MacroPoint order identifier |
+| `eventType` | select | Yes | location, arrived-pickup, departed-pickup, arrived-delivery, departed-delivery, in-transit, delay, exception |
+| `timestamp` | date | Yes | When event occurred |
+| `latitude` | number | No | GPS latitude |
+| `longitude` | number | No | GPS longitude |
+| `city` | text | No | City name |
+| `state` | text | No | State abbreviation |
+| `eta` | date | No | Estimated time of arrival |
+| `notes` | textarea | No | Event notes |
+| `rawPayload` | json | No | Full webhook payload |
+| `createdAt` | date | Auto | Record creation |
+| `updatedAt` | date | Auto | Last update |
+
+#### Relationships
+- Belongs to one `load`
+
+#### Use Cases
+- Location history tracking
+- Geofence event logging
+- ETA tracking
+- Audit trail for delivery proof
+
+---
+
+### Invoices
+
+Customer invoices generated from loads.
+
+**Collection**: `invoices`
+**Slug**: `invoices`
+
+#### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `invoiceNumber` | text | Auto | Auto-generated (INV-YYYYMM-XXXX) |
+| `status` | select | Yes | draft, sent, viewed, partial, paid, overdue, void |
+| `customer` | relationship | Yes | Reference to customers collection |
+| `loads` | relationship[] | No | Associated loads |
+| `invoiceDate` | date | Yes | Invoice date |
+| `dueDate` | date | Auto | Calculated from payment terms |
+| `paymentTerms` | select | No | due-on-receipt, net-15, net-30, net-45, net-60 |
+| `lineItems` | array | Yes | Invoice line items |
+| `subtotal` | number | Auto | Auto-calculated |
+| `total` | number | Auto | Auto-calculated |
+| `payments` | array | No | Payment records |
+| `amountPaid` | number | Auto | Total payments received |
+| `balanceDue` | number | Auto | Total - amountPaid |
+| `billingAddress` | group | No | Customer billing address |
+| `quickbooks.invoiceId` | text | No | QuickBooks invoice ID |
+| `quickbooks.syncedAt` | date | No | Last sync timestamp |
+| `quickbooks.syncStatus` | select | No | not-synced, synced, error |
+| `notes` | textarea | No | Notes (appears on invoice) |
+| `sentAt` | date | No | When invoice was sent |
+| `sentTo` | text | No | Email recipient |
+| `createdAt` | date | Auto | Record creation |
+| `updatedAt` | date | Auto | Last update |
+
+#### Line Items Array Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `description` | text | Yes | Line item description |
+| `quantity` | number | No | Quantity (default: 1) |
+| `rate` | number | Yes | Unit rate |
+| `total` | number | Auto | Auto-calculated |
+| `load` | relationship | No | Related load |
+
+#### Payments Array Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `paymentDate` | date | Yes | Date payment received |
+| `amount` | number | Yes | Payment amount |
+| `method` | select | No | check, ach, wire, credit-card, other |
+| `referenceNumber` | text | No | Check/reference number |
+| `notes` | text | No | Payment notes |
+
+#### Relationships
+- Belongs to one `customer`
+- Has many `loads`
+
+#### Use Cases
+- Customer billing
+- Accounts receivable tracking
+- Payment recording
+- QuickBooks integration
+- PDF invoice generation
+
+---
+
+### Carrier Payments
+
+Carrier pay sheets for carrier compensation.
+
+**Collection**: `carrier-payments`
+**Slug**: `carrier-payments`
+
+#### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `paySheetNumber` | text | Auto | Auto-generated (PAY-YYYYMM-XXXX) |
+| `status` | select | Yes | pending, approved, processing, paid, cancelled |
+| `carrier` | relationship | Yes | Reference to carriers collection |
+| `loads` | relationship[] | No | Associated loads |
+| `paymentType` | select | Yes | standard, quick-pay, factoring |
+| `quickPayFee` | number | No | Quick pay fee percentage |
+| `lineItems` | array | Yes | Pay sheet line items |
+| `deductions` | array | No | Deductions (advances, fees) |
+| `subtotal` | number | Auto | Auto-calculated |
+| `total` | number | Auto | After deductions |
+| `factoringCompany` | text | No | Factoring company name |
+| `epay.transactionId` | text | No | ePay transaction ID |
+| `epay.submittedAt` | date | No | When submitted to ePay |
+| `epay.paidAt` | date | No | When payment completed |
+| `epay.syncStatus` | select | No | not-synced, pending, paid, error |
+| `notes` | textarea | No | Internal notes |
+| `approvedBy` | relationship | No | User who approved |
+| `approvedAt` | date | No | Approval timestamp |
+| `createdAt` | date | Auto | Record creation |
+| `updatedAt` | date | Auto | Last update |
+
+#### Line Items Array Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `description` | text | Yes | Line item description |
+| `amount` | number | Yes | Amount |
+| `load` | relationship | No | Related load |
+| `type` | select | Yes | linehaul, detention, layover, lumper, other |
+
+#### Deductions Array Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `description` | text | Yes | Deduction description |
+| `amount` | number | Yes | Deduction amount |
+| `type` | select | Yes | advance, quick-pay-fee, damage, other |
+
+#### Relationships
+- Belongs to one `carrier`
+- Has many `loads`
+- Belongs to one `user` (approver)
+
+#### Use Cases
+- Carrier compensation
+- Quick pay processing
+- Factoring integration
+- ePay integration
+- Accounts payable tracking
+
+---
+
 ### Media
 
 File uploads and document storage.
@@ -383,25 +555,42 @@ File uploads and document storage.
 
 ```
 Users
-  └─(no relationships currently)
+  └── approves → Carrier Payments
 
 Customers
   ├── has many → Customer Locations
-  └── has many → Loads
+  ├── has many → Loads
+  └── has many → Invoices
 
 Customer Locations
   ├── belongs to → Customer
   └── referenced by → Loads (pickup/delivery)
 
 Carriers
-  └── has many → Loads
+  ├── has many → Loads
+  └── has many → Carrier Payments
 
 Loads
   ├── belongs to → Customer
   ├── references → Customer Location (pickup)
   ├── references → Customer Location (delivery)
   ├── belongs to → Carrier
-  └── has many → Media (documents)
+  ├── has many → Media (documents)
+  ├── has many → Tracking Events
+  ├── referenced by → Invoices
+  └── referenced by → Carrier Payments
+
+Tracking Events
+  └── belongs to → Load
+
+Invoices
+  ├── belongs to → Customer
+  └── references many → Loads
+
+Carrier Payments
+  ├── belongs to → Carrier
+  ├── references many → Loads
+  └── approved by → User
 
 Media
   └── referenced by → Loads
@@ -474,6 +663,31 @@ For optimal query performance, the following indexes are recommended:
 { createdAt: -1 }
 ```
 
+#### Tracking Events
+```javascript
+{ load: 1 }
+{ load: 1, timestamp: -1 }
+{ macropointOrderId: 1 }
+{ eventType: 1 }
+```
+
+#### Invoices
+```javascript
+{ invoiceNumber: 1 } // unique
+{ customer: 1 }
+{ status: 1 }
+{ dueDate: 1 }
+{ createdAt: -1 }
+```
+
+#### Carrier Payments
+```javascript
+{ paySheetNumber: 1 } // unique
+{ carrier: 1 }
+{ status: 1 }
+{ createdAt: -1 }
+```
+
 ### Compound Indexes
 
 ```javascript
@@ -482,6 +696,14 @@ For optimal query performance, the following indexes are recommended:
 { customer: 1, status: 1 }
 { carrier: 1, status: 1 }
 { status: 1, deliveryDate: 1 }
+
+// Invoices
+{ customer: 1, status: 1 }
+{ status: 1, dueDate: 1 }
+
+// Carrier Payments
+{ carrier: 1, status: 1 }
+{ status: 1, createdAt: -1 }
 ```
 
 ---

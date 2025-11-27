@@ -55,6 +55,12 @@ sptms/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── (frontend)/        # Public pages
+│   │   │   ├── api/           # Custom API endpoints
+│   │   │   │   ├── loads/[id]/     # Load operations (rate con, tracking, duplicate)
+│   │   │   │   ├── invoices/       # Invoice generation and PDF
+│   │   │   │   ├── carrier-payments/ # Pay sheet generation
+│   │   │   │   ├── webhooks/       # External webhooks (MacroPoint)
+│   │   │   │   └── reports/        # Profitability reports
 │   │   │   ├── layout.tsx     # Frontend layout
 │   │   │   ├── page.tsx       # Homepage
 │   │   │   └── styles.css     # Global styles
@@ -68,11 +74,25 @@ sptms/
 │   │   ├── CustomerLocations.ts
 │   │   ├── Carriers.ts
 │   │   ├── Loads.ts
+│   │   ├── TrackingEvents.ts  # MacroPoint tracking history
+│   │   ├── Invoices.ts        # Customer invoices
+│   │   ├── CarrierPayments.ts # Carrier pay sheets
 │   │   └── Media.ts
 │   ├── components/            # React components
 │   │   └── ui/               # shadcn/ui components
-│   ├── lib/                   # Utilities
-│   │   └── utils.ts          # Helper functions
+│   ├── lib/                   # Utilities and services
+│   │   ├── utils.ts          # Helper functions
+│   │   ├── pdf/              # PDF templates
+│   │   │   ├── rate-confirmation.tsx
+│   │   │   └── invoice.tsx
+│   │   ├── email/            # Email templates
+│   │   │   └── rate-confirmation-email.tsx
+│   │   ├── integrations/     # External service integrations
+│   │   │   ├── macropoint.ts  # MacroPoint tracking API
+│   │   │   ├── quickbooks.ts  # QuickBooks Online API
+│   │   │   └── epay.ts        # ePay carrier payments API
+│   │   └── services/         # Business logic services
+│   │       └── profitability.ts # Profitability calculations
 │   └── payload.config.ts      # Payload configuration
 ├── docs/                      # Documentation
 ├── tests/                     # Test files
@@ -514,9 +534,253 @@ pnpm lint --fix
 
 ---
 
+## Working with Integrations
+
+### MacroPoint Integration
+
+The MacroPoint integration provides real-time freight tracking.
+
+**File**: `src/lib/integrations/macropoint.ts`
+
+**Usage**:
+```typescript
+import { macropoint } from '@/lib/integrations/macropoint'
+
+// Create tracking request
+const result = await macropoint.createTrackingRequest(
+  load,
+  carrier,
+  pickupLocation,
+  deliveryLocation
+)
+
+// Handle webhook
+const event = macropoint.parseWebhookPayload(webhookData)
+const newStatus = macropoint.shouldUpdateLoadStatus(event.eventCode)
+```
+
+**Environment Variables**:
+```env
+MACROPOINT_API_URL=https://api.macropoint.com/v2
+MACROPOINT_API_KEY=your_api_key
+MACROPOINT_API_SECRET=your_api_secret
+MACROPOINT_WEBHOOK_SECRET=your_webhook_secret
+```
+
+### QuickBooks Integration
+
+Syncs customers and invoices to QuickBooks Online.
+
+**File**: `src/lib/integrations/quickbooks.ts`
+
+**Usage**:
+```typescript
+import { quickbooks } from '@/lib/integrations/quickbooks'
+
+// Sync customer
+const result = await quickbooks.syncCustomer(customer, existingQbId)
+
+// Create invoice
+const invoice = await quickbooks.createInvoice({
+  invoiceNumber: 'INV-001',
+  customerQbId: 'qb-customer-id',
+  lineItems: [...]
+})
+```
+
+**Environment Variables**:
+```env
+QUICKBOOKS_CLIENT_ID=your_client_id
+QUICKBOOKS_CLIENT_SECRET=your_client_secret
+QUICKBOOKS_REDIRECT_URI=https://yourdomain.com/api/quickbooks/callback
+QUICKBOOKS_ENVIRONMENT=sandbox  # or production
+QUICKBOOKS_REALM_ID=your_company_id
+QUICKBOOKS_ACCESS_TOKEN=access_token
+QUICKBOOKS_REFRESH_TOKEN=refresh_token
+```
+
+### ePay Integration
+
+Handles carrier payments through ePay.
+
+**File**: `src/lib/integrations/epay.ts`
+
+**Usage**:
+```typescript
+import { epay } from '@/lib/integrations/epay'
+
+// Submit payment
+const result = await epay.submitPayment(paymentRequest)
+
+// Get payment status
+const status = await epay.getPaymentStatus(transactionId)
+```
+
+**Environment Variables**:
+```env
+EPAY_API_URL=https://api.epay.com/v1
+EPAY_MEMBER_ID=your_member_id
+EPAY_API_KEY=your_api_key
+EPAY_API_SECRET=your_api_secret
+```
+
+### DAT Load Board Integration
+
+Integrates with DAT for load posting, truck search, and market rates.
+
+**File**: `src/lib/integrations/dat.ts`
+
+**Usage**:
+```typescript
+import { dat } from '@/lib/integrations/dat'
+
+// Post a load to DAT
+const loadPost = dat.buildLoadPost(load, pickupLocation, deliveryLocation, contactInfo)
+const result = await dat.postLoad(loadPost)
+
+// Search for available trucks
+const trucks = await dat.searchTrucks({
+  origin: { city: 'Dallas', state: 'TX' },
+  destination: { city: 'Houston', state: 'TX' },
+  equipmentTypes: ['dry-van'],
+})
+
+// Get market rates
+const rates = await dat.getRates({
+  origin: { city: 'Dallas', state: 'TX' },
+  destination: { city: 'Houston', state: 'TX' },
+  equipmentType: 'dry-van',
+})
+
+// Get suggested rates with target margin
+const suggested = await dat.getSuggestedRate(
+  { city: 'Dallas', state: 'TX' },
+  { city: 'Houston', state: 'TX' },
+  'dry-van',
+  0.15 // 15% margin
+)
+
+// Get rate history for a lane
+const history = await dat.getLaneHistory(
+  { city: 'Dallas', state: 'TX' },
+  { city: 'Houston', state: 'TX' },
+  'dry-van',
+  90 // days
+)
+
+// Remove a posting
+await dat.removeLoadPost(postingId)
+```
+
+**Environment Variables**:
+```env
+DAT_API_URL=https://api.dat.com
+DAT_CLIENT_ID=your_client_id
+DAT_CLIENT_SECRET=your_client_secret
+DAT_USERNAME=your_dat_username
+DAT_PASSWORD=your_dat_password
+```
+
+**Requirements**:
+- Connexion seat + load board seat for posting loads and searching trucks
+- RateView subscription for market rate data
+
+---
+
+## Profitability Service
+
+Calculate margins and generate financial reports.
+
+**File**: `src/lib/services/profitability.ts`
+
+**Usage**:
+```typescript
+import { profitability } from '@/lib/services/profitability'
+
+// Calculate load profitability
+const loadProfit = profitability.calculateLoadProfitability(load)
+
+// Calculate batch profitability
+const batchResult = profitability.calculateBatchProfitability(loads)
+
+// Generate summary report
+const summary = profitability.generateSummary(
+  loads,
+  customersMap,
+  startDate,
+  endDate
+)
+
+// Calculate target rates
+const target = profitability.calculateTargetRate(carrierRate, targetMarginPercent)
+```
+
+---
+
+## PDF Generation
+
+Generate PDFs using React-PDF.
+
+**Files**:
+- `src/lib/pdf/rate-confirmation.tsx`
+- `src/lib/pdf/invoice.tsx`
+
+**Usage**:
+```typescript
+import { renderToBuffer } from '@react-pdf/renderer'
+import { RateConfirmationPDF } from '@/lib/pdf/rate-confirmation'
+import { InvoicePDF } from '@/lib/pdf/invoice'
+
+// Generate PDF buffer
+const pdfBuffer = await renderToBuffer(
+  RateConfirmationPDF(props) as any
+)
+
+// Return as response
+return new NextResponse(pdfBuffer, {
+  headers: {
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="document.pdf"`,
+  },
+})
+```
+
+---
+
+## Email Sending
+
+Send emails using Resend.
+
+**File**: `src/lib/email/rate-confirmation-email.tsx`
+
+**Usage**:
+```typescript
+import { Resend } from 'resend'
+import { RateConfirmationEmail } from '@/lib/email/rate-confirmation-email'
+
+const resend = new Resend(process.env.RESEND_API_KEY)
+
+await resend.emails.send({
+  from: process.env.RESEND_FROM_EMAIL,
+  to: carrierEmail,
+  subject: `Rate Confirmation - Load ${loadNumber}`,
+  react: RateConfirmationEmail(props),
+  attachments: [
+    {
+      filename: 'RateConfirmation.pdf',
+      content: pdfBuffer,
+    },
+  ],
+})
+```
+
+---
+
 **Last Updated**: November 2024
 
 For more information:
 - [Next.js Documentation](https://nextjs.org/docs)
 - [Payload CMS Documentation](https://payloadcms.com/docs)
 - [Tailwind CSS Documentation](https://tailwindcss.com/docs)
+- [React-PDF Documentation](https://react-pdf.org/)
+- [Resend Documentation](https://resend.com/docs)
