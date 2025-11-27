@@ -6,6 +6,11 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 import { Users } from './collections/Users'
+import { Customers } from './collections/Customers'
+import { CustomerLocations } from './collections/CustomerLocations'
+import { Carriers } from './collections/Carriers'
+import { Loads } from './collections/Loads'
+import { Media } from './collections/Media'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -19,11 +24,18 @@ export default buildConfig({
   },
   collections: [
     Users,
+    Loads,
+    Customers,
+    CustomerLocations,
+    Carriers,
+    Media,
   ],
   plugins: [
     vercelBlobStorage({
       enabled: true,
-      collections: {},
+      collections: {
+        media: true,
+      },
       token: process.env.BLOB_READ_WRITE_TOKEN || '',
     }),
   ],
